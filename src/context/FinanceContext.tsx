@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   FinanceData, Account, Transaction, Category, Goal, Budget, 
@@ -73,13 +73,23 @@ interface FinanceContextType {
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 
 export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [data, setData] = useState<FinanceData>(loadData());
+  const [data, setData] = useState<FinanceData>(() => {
+    const loaded = loadData();
+    // Default autoSync to true if token exists
+    if (loaded.settings?.githubToken && loaded.settings?.gistId && loaded.settings.autoSync === undefined) {
+      loaded.settings.autoSync = true;
+    }
+    return loaded;
+  });
+
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncError, setSyncError] = useState<string | null>(null);
-  const autoSyncDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFirstLoadRef = useRef(true);
+  
+  const autoPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dataRef = useRef<FinanceData>(data);
+  dataRef.current = data;
 
-  // Auto-save to LocalStorage
+  // Auto-save to LocalStorage whenever state changes
   useEffect(() => {
     saveData(data);
   }, [data]);
@@ -95,39 +105,14 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [data.settings?.theme]);
 
-  // Initial cloud sync on startup (Pull if configured)
-  useEffect(() => {
-    const { githubToken, gistId } = data.settings || {};
-    if (isFirstLoadRef.current && githubToken && gistId) {
-      isFirstLoadRef.current = false;
-      syncCloud('auto');
-    }
-  }, []);
-
-  // Debounced auto-push when data changes (if autoSync enabled)
-  useEffect(() => {
-    const { githubToken, gistId, autoSync } = data.settings || {};
-    if (!githubToken || !gistId || !autoSync || isFirstLoadRef.current) return;
-
-    if (autoSyncDebounceRef.current) {
-      clearTimeout(autoSyncDebounceRef.current);
-    }
-
-    autoSyncDebounceRef.current = setTimeout(() => {
-      syncCloud('push');
-    }, 2000);
-
-    return () => {
-      if (autoSyncDebounceRef.current) clearTimeout(autoSyncDebounceRef.current);
-    };
-  }, [data.accounts, data.transactions, data.goals, data.budgets, data.categories]);
-
   // Cloud Sync method
-  const syncCloud = async (direction: 'push' | 'pull' | 'auto' = 'auto'): Promise<{ success: boolean; message: string }> => {
-    const { githubToken, gistId } = data.settings || {};
+  const syncCloud = useCallback(async (direction: 'push' | 'pull' | 'auto' = 'auto', targetData?: FinanceData): Promise<{ success: boolean; message: string }> => {
+    const currentData = targetData || dataRef.current;
+    const { githubToken, gistId } = currentData.settings || {};
+    
     if (!githubToken || !gistId) {
       setSyncStatus('idle');
-      return { success: false, message: 'Синхронизация не настроена (укажите токен и Gist ID)' };
+      return { success: false, message: 'Синхронизация не настроена' };
     }
 
     setSyncStatus('syncing');
@@ -137,27 +122,28 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (direction === 'pull' || direction === 'auto') {
         const remote = await pullFromGist(githubToken, gistId);
         
-        // If auto mode: check which is newer (or merge)
         if (direction === 'auto') {
           const remoteTime = new Date(remote.data.lastModified || remote.updatedAt).getTime();
-          const localTime = new Date(data.lastModified || 0).getTime();
+          const localTime = new Date(currentData.lastModified || 0).getTime();
 
           if (remoteTime > localTime) {
-            // Remote is newer, load remote
+            // Remote is newer, load remote data
+            const mergedSettings = {
+              ...remote.data.settings,
+              githubToken,
+              gistId,
+              autoSync: true,
+              lastSyncedAt: new Date().toISOString(),
+            };
             setData({
               ...remote.data,
-              settings: {
-                ...remote.data.settings,
-                githubToken,
-                gistId,
-                lastSyncedAt: new Date().toISOString(),
-              }
+              settings: mergedSettings,
             });
             setSyncStatus('synced');
-            return { success: true, message: 'Данные успешно обновлены из облака' };
-          } else {
+            return { success: true, message: 'Данные обновлены из облака' };
+          } else if (localTime > remoteTime) {
             // Local is newer, push to remote
-            await pushToGist(githubToken, gistId, data);
+            await pushToGist(githubToken, gistId, currentData);
             setData(prev => ({
               ...prev,
               settings: {
@@ -166,25 +152,30 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
               }
             }));
             setSyncStatus('synced');
-            return { success: true, message: 'Локальные данные отправлены в облако' };
+            return { success: true, message: 'Данные сохранены в облако' };
+          } else {
+            setSyncStatus('synced');
+            return { success: true, message: 'Данные синхронизированы' };
           }
         } else {
           // Explicit pull
+          const mergedSettings = {
+            ...remote.data.settings,
+            githubToken,
+            gistId,
+            autoSync: true,
+            lastSyncedAt: new Date().toISOString(),
+          };
           setData({
             ...remote.data,
-            settings: {
-              ...remote.data.settings,
-              githubToken,
-              gistId,
-              lastSyncedAt: new Date().toISOString(),
-            }
+            settings: mergedSettings,
           });
           setSyncStatus('synced');
-          return { success: true, message: 'Данные успешно загружены из облака' };
+          return { success: true, message: 'Данные загружены из облака' };
         }
       } else {
         // Explicit push
-        await pushToGist(githubToken, gistId, data);
+        await pushToGist(githubToken, gistId, currentData);
         setData(prev => ({
           ...prev,
           settings: {
@@ -193,7 +184,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
           }
         }));
         setSyncStatus('synced');
-        return { success: true, message: 'Данные успешно сохранены в облако' };
+        return { success: true, message: 'Данные сохранены в облако' };
       }
     } catch (err: any) {
       const msg = err.message || 'Ошибка синхронизации';
@@ -201,26 +192,67 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       setSyncError(msg);
       return { success: false, message: msg };
     }
-  };
+  }, []);
+
+  // Automatic immediate background push when data is modified
+  const triggerAutoPush = useCallback((nextData: FinanceData) => {
+    const { githubToken, gistId, autoSync } = nextData.settings || {};
+    if (!githubToken || !gistId || autoSync === false) return;
+
+    setSyncStatus('syncing');
+
+    if (autoPushTimerRef.current) {
+      clearTimeout(autoPushTimerRef.current);
+    }
+
+    // Debounce by 500ms to bundle rapid operations (e.g. typing or multiple clicks)
+    autoPushTimerRef.current = setTimeout(() => {
+      syncCloud('push', nextData);
+    }, 500);
+  }, [syncCloud]);
+
+  // Initial cloud sync on startup + on tab focus / visibility
+  useEffect(() => {
+    const { githubToken, gistId } = dataRef.current.settings || {};
+    if (githubToken && gistId) {
+      syncCloud('auto');
+    }
+
+    const handleVisibilityOrFocus = () => {
+      const { githubToken, gistId } = dataRef.current.settings || {};
+      if (document.visibilityState === 'visible' && githubToken && gistId) {
+        syncCloud('auto');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, [syncCloud]);
 
   // Create a new Cloud Backup Gist
   const createCloudBackup = async (token: string): Promise<{ success: boolean; gistId?: string; message: string }> => {
     setSyncStatus('syncing');
     setSyncError(null);
     try {
-      const result = await createPrivateGist(token, data);
-      setData(prev => ({
-        ...prev,
+      const result = await createPrivateGist(token, dataRef.current);
+      const updatedData: FinanceData = {
+        ...dataRef.current,
         settings: {
-          ...prev.settings,
+          ...dataRef.current.settings,
           githubToken: token,
           gistId: result.gistId,
           autoSync: true,
           lastSyncedAt: new Date().toISOString(),
         }
-      }));
+      };
+      setData(updatedData);
       setSyncStatus('synced');
-      return { success: true, gistId: result.gistId, message: 'Приватный Gist создан и настроен!' };
+      return { success: true, gistId: result.gistId, message: 'Приватный Gist создан и автосинхронизация включена!' };
     } catch (err: any) {
       const msg = err.message || 'Ошибка создания Gist';
       setSyncStatus('error');
@@ -234,35 +266,41 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     return { user: res.login };
   };
 
-  // Actions
+  // State Mutators with Auto Cloud Push
   const addAccount = (account: Omit<Account, 'id' | 'createdAt'>) => {
     const newAccount: Account = {
       ...account,
       id: uuidv4(),
       createdAt: new Date().toISOString(),
     };
-    setData(prev => ({ 
-      ...prev, 
+    const nextData: FinanceData = { 
+      ...dataRef.current, 
       lastModified: new Date().toISOString(),
-      accounts: [...prev.accounts, newAccount] 
-    }));
+      accounts: [...dataRef.current.accounts, newAccount] 
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const updateAccount = (id: string, accountUpdates: Partial<Omit<Account, 'id' | 'createdAt'>>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      accounts: prev.accounts.map(a => a.id === id ? { ...a, ...accountUpdates } : a),
-    }));
+      accounts: dataRef.current.accounts.map(a => a.id === id ? { ...a, ...accountUpdates } : a),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const deleteAccount = (id: string) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      accounts: prev.accounts.filter(a => a.id !== id),
-      transactions: prev.transactions.filter(t => t.accountId !== id && t.toAccountId !== id),
-    }));
+      accounts: dataRef.current.accounts.filter(a => a.id !== id),
+      transactions: dataRef.current.transactions.filter(t => t.accountId !== id && t.toAccountId !== id),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   // Transactions
@@ -272,214 +310,254 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       id: uuidv4(),
     };
     
-    setData(prev => {
-      let accounts = [...prev.accounts];
-      
-      if (transaction.type === 'income') {
-        accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance + transaction.amount } : a);
-      } else if (transaction.type === 'expense') {
-        accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance - transaction.amount } : a);
-      } else if (transaction.type === 'transfer' && transaction.toAccountId) {
-        accounts = accounts.map(a => {
-          if (a.id === transaction.accountId) return { ...a, balance: a.balance - transaction.amount };
-          if (a.id === transaction.toAccountId) return { ...a, balance: a.balance + transaction.amount };
-          return a;
-        });
-      }
-      
-      return {
-        ...prev,
-        lastModified: new Date().toISOString(),
-        accounts,
-        transactions: [newTransaction, ...prev.transactions],
-      };
-    });
+    let accounts = [...dataRef.current.accounts];
+    
+    if (transaction.type === 'income') {
+      accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance + transaction.amount } : a);
+    } else if (transaction.type === 'expense') {
+      accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance - transaction.amount } : a);
+    } else if (transaction.type === 'transfer' && transaction.toAccountId) {
+      accounts = accounts.map(a => {
+        if (a.id === transaction.accountId) return { ...a, balance: a.balance - transaction.amount };
+        if (a.id === transaction.toAccountId) return { ...a, balance: a.balance + transaction.amount };
+        return a;
+      });
+    }
+    
+    const nextData: FinanceData = {
+      ...dataRef.current,
+      lastModified: new Date().toISOString(),
+      accounts,
+      transactions: [newTransaction, ...dataRef.current.transactions],
+    };
+
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const updateTransaction = (id: string, transactionUpdates: Partial<Omit<Transaction, 'id'>>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      transactions: prev.transactions.map(t => t.id === id ? { ...t, ...transactionUpdates } : t),
-    }));
+      transactions: dataRef.current.transactions.map(t => t.id === id ? { ...t, ...transactionUpdates } : t),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const deleteTransaction = (id: string) => {
-    setData(prev => {
-      const transaction = prev.transactions.find(t => t.id === id);
-      if (!transaction) return prev;
-      
-      let accounts = [...prev.accounts];
-      
-      if (transaction.type === 'income') {
-        accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance - transaction.amount } : a);
-      } else if (transaction.type === 'expense') {
-        accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance + transaction.amount } : a);
-      } else if (transaction.type === 'transfer' && transaction.toAccountId) {
-        accounts = accounts.map(a => {
-          if (a.id === transaction.accountId) return { ...a, balance: a.balance + transaction.amount };
-          if (a.id === transaction.toAccountId) return { ...a, balance: a.balance - transaction.amount };
-          return a;
-        });
-      }
-      
-      return {
-        ...prev,
-        lastModified: new Date().toISOString(),
-        accounts,
-        transactions: prev.transactions.filter(t => t.id !== id),
-      };
-    });
+    const transaction = dataRef.current.transactions.find(t => t.id === id);
+    if (!transaction) return;
+    
+    let accounts = [...dataRef.current.accounts];
+    
+    if (transaction.type === 'income') {
+      accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance - transaction.amount } : a);
+    } else if (transaction.type === 'expense') {
+      accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance + transaction.amount } : a);
+    } else if (transaction.type === 'transfer' && transaction.toAccountId) {
+      accounts = accounts.map(a => {
+        if (a.id === transaction.accountId) return { ...a, balance: a.balance + transaction.amount };
+        if (a.id === transaction.toAccountId) return { ...a, balance: a.balance - transaction.amount };
+        return a;
+      });
+    }
+    
+    const nextData: FinanceData = {
+      ...dataRef.current,
+      lastModified: new Date().toISOString(),
+      accounts,
+      transactions: dataRef.current.transactions.filter(t => t.id !== id),
+    };
+
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   // Goals
   const addGoal = (goal: Omit<Goal, 'id' | 'createdAt'>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      goals: [...prev.goals, { ...goal, id: uuidv4(), createdAt: new Date().toISOString() }],
-    }));
+      goals: [...dataRef.current.goals, { ...goal, id: uuidv4(), createdAt: new Date().toISOString() }],
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const updateGoal = (id: string, updates: Partial<Omit<Goal, 'id' | 'createdAt'>>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      goals: prev.goals.map(g => g.id === id ? { ...g, ...updates } : g),
-    }));
+      goals: dataRef.current.goals.map(g => g.id === id ? { ...g, ...updates } : g),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const deleteGoal = (id: string) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      goals: prev.goals.filter(g => g.id !== id),
-    }));
+      goals: dataRef.current.goals.filter(g => g.id !== id),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const contributeToGoal = (id: string, amount: number) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      goals: prev.goals.map(g => g.id === id ? { ...g, currentAmount: g.currentAmount + amount } : g),
-    }));
+      goals: dataRef.current.goals.map(g => g.id === id ? { ...g, currentAmount: g.currentAmount + amount } : g),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   // Budgets
   const addBudget = (budget: Omit<Budget, 'id'>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      budgets: [...prev.budgets, { ...budget, id: uuidv4() }],
-    }));
+      budgets: [...dataRef.current.budgets, { ...budget, id: uuidv4() }],
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const updateBudget = (id: string, updates: Partial<Omit<Budget, 'id'>>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      budgets: prev.budgets.map(b => b.id === id ? { ...b, ...updates } : b),
-    }));
+      budgets: dataRef.current.budgets.map(b => b.id === id ? { ...b, ...updates } : b),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const deleteBudget = (id: string) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      budgets: prev.budgets.filter(b => b.id !== id),
-    }));
+      budgets: dataRef.current.budgets.filter(b => b.id !== id),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   // Recurring Payments
   const addRecurringPayment = (payment: Omit<RecurringPayment, 'id'>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      recurringPayments: [...prev.recurringPayments, { ...payment, id: uuidv4() }],
-    }));
+      recurringPayments: [...dataRef.current.recurringPayments, { ...payment, id: uuidv4() }],
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const updateRecurringPayment = (id: string, updates: Partial<Omit<RecurringPayment, 'id'>>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      recurringPayments: prev.recurringPayments.map(p => p.id === id ? { ...p, ...updates } : p),
-    }));
+      recurringPayments: dataRef.current.recurringPayments.map(p => p.id === id ? { ...p, ...updates } : p),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const deleteRecurringPayment = (id: string) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      recurringPayments: prev.recurringPayments.filter(p => p.id !== id),
-    }));
+      recurringPayments: dataRef.current.recurringPayments.filter(p => p.id !== id),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   // Quick Templates
   const addQuickTemplate = (template: Omit<QuickTemplate, 'id'>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      quickTemplates: [...prev.quickTemplates, { ...template, id: uuidv4() }],
-    }));
+      quickTemplates: [...dataRef.current.quickTemplates, { ...template, id: uuidv4() }],
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const deleteQuickTemplate = (id: string) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      quickTemplates: prev.quickTemplates.filter(t => t.id !== id),
-    }));
+      quickTemplates: dataRef.current.quickTemplates.filter(t => t.id !== id),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   // Categories
   const addCategory = (category: Omit<Category, 'id'>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      categories: [...prev.categories, { ...category, id: uuidv4() }],
-    }));
+      categories: [...dataRef.current.categories, { ...category, id: uuidv4() }],
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const updateCategory = (id: string, updates: Partial<Omit<Category, 'id'>>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      categories: prev.categories.map(c => c.id === id ? { ...c, ...updates } : c),
-    }));
+      categories: dataRef.current.categories.map(c => c.id === id ? { ...c, ...updates } : c),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const deleteCategory = (id: string) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      categories: prev.categories.filter(c => c.id !== id),
-    }));
+      categories: dataRef.current.categories.filter(c => c.id !== id),
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   // Settings
   const updateSettings = (settings: Partial<AppSettings>) => {
-    setData(prev => ({
-      ...prev,
+    const nextData: FinanceData = {
+      ...dataRef.current,
       lastModified: new Date().toISOString(),
-      settings: { ...prev.settings, ...settings },
-    }));
+      settings: { ...dataRef.current.settings, ...settings },
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   // Storage
   const importData = (json: string) => {
     const imported = importStorageData(json);
-    setData({
+    const nextData: FinanceData = {
       ...imported,
       lastModified: new Date().toISOString(),
-    });
+    };
+    setData(nextData);
+    triggerAutoPush(nextData);
   };
 
   const exportData = () => exportStorageData();
   const exportCSV = () => exportStorageCSV(data.transactions, data.categories, data.accounts);
   const clearAllData = () => {
     clearStorageData();
-    setData(loadData());
+    const fresh = loadData();
+    setData(fresh);
+    triggerAutoPush(fresh);
   };
 
   // Computed values
