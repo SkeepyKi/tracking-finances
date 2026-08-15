@@ -12,7 +12,7 @@ interface DashboardPageProps {
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate = () => {} }) => {
-  const { data, totalBalance, monthlyIncome, monthlyExpense, savingsRate } = useFinance();
+  const { data, totalBalance, monthlyIncome, monthlyExpense, savingsRate, syncStatus, syncCloud } = useFinance();
   const transactions = data.transactions || [];
   const accounts = data.accounts || [];
   const goals = data.goals || [];
@@ -47,6 +47,49 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate = () =>
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {data.settings?.githubToken && data.settings?.gistId ? (
+            <button
+              onClick={() => syncCloud('auto')}
+              className="btn btn--outline"
+              title="Облачная синхронизация (GitHub Gist)"
+              style={{
+                fontSize: '0.85rem',
+                padding: '0.5rem 0.85rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+            >
+              {syncStatus === 'syncing' ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--accent)' }}>
+                  ⏳ Синхронизация...
+                </span>
+              ) : syncStatus === 'synced' ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--success)' }}>
+                  ☁️ Синхронизировано
+                </span>
+              ) : syncStatus === 'error' ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--danger)' }}>
+                  ⚠️ Ошибка синхронизации
+                </span>
+              ) : (
+                <span>☁️ Синхронизация</span>
+              )}
+            </button>
+          ) : (
+            <button
+              onClick={() => onNavigate('settings')}
+              className="btn btn--outline"
+              title="Настроить синхронизацию с телефоном"
+              style={{
+                fontSize: '0.8rem',
+                padding: '0.45rem 0.75rem',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              ☁️ Подключить облако
+            </button>
+          )}
           <ThemeToggle />
         </div>
       </div>

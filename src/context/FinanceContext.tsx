@@ -1,14 +1,24 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   FinanceData, Account, Transaction, Category, Goal, Budget, 
   RecurringPayment, QuickTemplate, AppSettings 
 } from '../types';
 import { loadData, saveData, importData as importStorageData, exportData as exportStorageData, exportCSV as exportStorageCSV, clearData as clearStorageData } from '../services/storage';
+import { pushToGist, pullFromGist, createPrivateGist, testGistToken } from '../services/gistSync';
+
+export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
 
 interface FinanceContextType {
   data: FinanceData;
+  syncStatus: SyncStatus;
+  syncError: string | null;
   
+  // Cloud Sync Actions
+  syncCloud: (direction?: 'push' | 'pull' | 'auto') => Promise<{ success: boolean; message: string }>;
+  createCloudBackup: (token: string) => Promise<{ success: boolean; gistId?: string; message: string }>;
+  testToken: (token: string) => Promise<{ user: string }>;
+
   // Accounts
   addAccount: (account: Omit<Account, 'id' | 'createdAt'>) => void;
   updateAccount: (id: string, account: Partial<Omit<Account, 'id' | 'createdAt'>>) => void;
@@ -64,8 +74,12 @@ const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 
 export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [data, setData] = useState<FinanceData>(loadData());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const autoSyncDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstLoadRef = useRef(true);
 
-  // Auto-save
+  // Auto-save to LocalStorage
   useEffect(() => {
     saveData(data);
   }, [data]);
@@ -81,21 +95,163 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [data.settings?.theme]);
 
+  // Initial cloud sync on startup (Pull if configured)
+  useEffect(() => {
+    const { githubToken, gistId } = data.settings || {};
+    if (isFirstLoadRef.current && githubToken && gistId) {
+      isFirstLoadRef.current = false;
+      syncCloud('auto');
+    }
+  }, []);
+
+  // Debounced auto-push when data changes (if autoSync enabled)
+  useEffect(() => {
+    const { githubToken, gistId, autoSync } = data.settings || {};
+    if (!githubToken || !gistId || !autoSync || isFirstLoadRef.current) return;
+
+    if (autoSyncDebounceRef.current) {
+      clearTimeout(autoSyncDebounceRef.current);
+    }
+
+    autoSyncDebounceRef.current = setTimeout(() => {
+      syncCloud('push');
+    }, 2000);
+
+    return () => {
+      if (autoSyncDebounceRef.current) clearTimeout(autoSyncDebounceRef.current);
+    };
+  }, [data.accounts, data.transactions, data.goals, data.budgets, data.categories]);
+
+  // Cloud Sync method
+  const syncCloud = async (direction: 'push' | 'pull' | 'auto' = 'auto'): Promise<{ success: boolean; message: string }> => {
+    const { githubToken, gistId } = data.settings || {};
+    if (!githubToken || !gistId) {
+      setSyncStatus('idle');
+      return { success: false, message: 'Синхронизация не настроена (укажите токен и Gist ID)' };
+    }
+
+    setSyncStatus('syncing');
+    setSyncError(null);
+
+    try {
+      if (direction === 'pull' || direction === 'auto') {
+        const remote = await pullFromGist(githubToken, gistId);
+        
+        // If auto mode: check which is newer (or merge)
+        if (direction === 'auto') {
+          const remoteTime = new Date(remote.data.lastModified || remote.updatedAt).getTime();
+          const localTime = new Date(data.lastModified || 0).getTime();
+
+          if (remoteTime > localTime) {
+            // Remote is newer, load remote
+            setData({
+              ...remote.data,
+              settings: {
+                ...remote.data.settings,
+                githubToken,
+                gistId,
+                lastSyncedAt: new Date().toISOString(),
+              }
+            });
+            setSyncStatus('synced');
+            return { success: true, message: 'Данные успешно обновлены из облака' };
+          } else {
+            // Local is newer, push to remote
+            await pushToGist(githubToken, gistId, data);
+            setData(prev => ({
+              ...prev,
+              settings: {
+                ...prev.settings,
+                lastSyncedAt: new Date().toISOString(),
+              }
+            }));
+            setSyncStatus('synced');
+            return { success: true, message: 'Локальные данные отправлены в облако' };
+          }
+        } else {
+          // Explicit pull
+          setData({
+            ...remote.data,
+            settings: {
+              ...remote.data.settings,
+              githubToken,
+              gistId,
+              lastSyncedAt: new Date().toISOString(),
+            }
+          });
+          setSyncStatus('synced');
+          return { success: true, message: 'Данные успешно загружены из облака' };
+        }
+      } else {
+        // Explicit push
+        await pushToGist(githubToken, gistId, data);
+        setData(prev => ({
+          ...prev,
+          settings: {
+            ...prev.settings,
+            lastSyncedAt: new Date().toISOString(),
+          }
+        }));
+        setSyncStatus('synced');
+        return { success: true, message: 'Данные успешно сохранены в облако' };
+      }
+    } catch (err: any) {
+      const msg = err.message || 'Ошибка синхронизации';
+      setSyncStatus('error');
+      setSyncError(msg);
+      return { success: false, message: msg };
+    }
+  };
+
+  // Create a new Cloud Backup Gist
+  const createCloudBackup = async (token: string): Promise<{ success: boolean; gistId?: string; message: string }> => {
+    setSyncStatus('syncing');
+    setSyncError(null);
+    try {
+      const result = await createPrivateGist(token, data);
+      setData(prev => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          githubToken: token,
+          gistId: result.gistId,
+          autoSync: true,
+          lastSyncedAt: new Date().toISOString(),
+        }
+      }));
+      setSyncStatus('synced');
+      return { success: true, gistId: result.gistId, message: 'Приватный Gist создан и настроен!' };
+    } catch (err: any) {
+      const msg = err.message || 'Ошибка создания Gist';
+      setSyncStatus('error');
+      setSyncError(msg);
+      return { success: false, message: msg };
+    }
+  };
+
+  const testToken = async (token: string): Promise<{ user: string }> => {
+    const res = await testGistToken(token);
+    return { user: res.login };
+  };
+
   // Actions
-  
-  // Accounts
   const addAccount = (account: Omit<Account, 'id' | 'createdAt'>) => {
     const newAccount: Account = {
       ...account,
       id: uuidv4(),
       createdAt: new Date().toISOString(),
     };
-    setData(prev => ({ ...prev, accounts: [...prev.accounts, newAccount] }));
+    setData(prev => ({ 
+      ...prev, 
+      lastModified: new Date().toISOString(),
+      accounts: [...prev.accounts, newAccount] 
+    }));
   };
 
   const updateAccount = (id: string, accountUpdates: Partial<Omit<Account, 'id' | 'createdAt'>>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       accounts: prev.accounts.map(a => a.id === id ? { ...a, ...accountUpdates } : a),
     }));
   };
@@ -103,8 +259,8 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteAccount = (id: string) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       accounts: prev.accounts.filter(a => a.id !== id),
-      // Also cleanup transactions related to this account
       transactions: prev.transactions.filter(t => t.accountId !== id && t.toAccountId !== id),
     }));
   };
@@ -119,7 +275,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
     setData(prev => {
       let accounts = [...prev.accounts];
       
-      // Update account balances
       if (transaction.type === 'income') {
         accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance + transaction.amount } : a);
       } else if (transaction.type === 'expense') {
@@ -134,8 +289,9 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       
       return {
         ...prev,
+        lastModified: new Date().toISOString(),
         accounts,
-        transactions: [...prev.transactions, newTransaction],
+        transactions: [newTransaction, ...prev.transactions],
       };
     });
   };
@@ -143,6 +299,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateTransaction = (id: string, transactionUpdates: Partial<Omit<Transaction, 'id'>>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       transactions: prev.transactions.map(t => t.id === id ? { ...t, ...transactionUpdates } : t),
     }));
   };
@@ -154,7 +311,6 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       
       let accounts = [...prev.accounts];
       
-      // Reverse account balances
       if (transaction.type === 'income') {
         accounts = accounts.map(a => a.id === transaction.accountId ? { ...a, balance: a.balance - transaction.amount } : a);
       } else if (transaction.type === 'expense') {
@@ -169,6 +325,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
       
       return {
         ...prev,
+        lastModified: new Date().toISOString(),
         accounts,
         transactions: prev.transactions.filter(t => t.id !== id),
       };
@@ -179,6 +336,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addGoal = (goal: Omit<Goal, 'id' | 'createdAt'>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       goals: [...prev.goals, { ...goal, id: uuidv4(), createdAt: new Date().toISOString() }],
     }));
   };
@@ -186,6 +344,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateGoal = (id: string, updates: Partial<Omit<Goal, 'id' | 'createdAt'>>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       goals: prev.goals.map(g => g.id === id ? { ...g, ...updates } : g),
     }));
   };
@@ -193,6 +352,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteGoal = (id: string) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       goals: prev.goals.filter(g => g.id !== id),
     }));
   };
@@ -200,6 +360,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const contributeToGoal = (id: string, amount: number) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       goals: prev.goals.map(g => g.id === id ? { ...g, currentAmount: g.currentAmount + amount } : g),
     }));
   };
@@ -208,6 +369,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addBudget = (budget: Omit<Budget, 'id'>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       budgets: [...prev.budgets, { ...budget, id: uuidv4() }],
     }));
   };
@@ -215,6 +377,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateBudget = (id: string, updates: Partial<Omit<Budget, 'id'>>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       budgets: prev.budgets.map(b => b.id === id ? { ...b, ...updates } : b),
     }));
   };
@@ -222,6 +385,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteBudget = (id: string) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       budgets: prev.budgets.filter(b => b.id !== id),
     }));
   };
@@ -230,6 +394,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addRecurringPayment = (payment: Omit<RecurringPayment, 'id'>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       recurringPayments: [...prev.recurringPayments, { ...payment, id: uuidv4() }],
     }));
   };
@@ -237,6 +402,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateRecurringPayment = (id: string, updates: Partial<Omit<RecurringPayment, 'id'>>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       recurringPayments: prev.recurringPayments.map(p => p.id === id ? { ...p, ...updates } : p),
     }));
   };
@@ -244,6 +410,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteRecurringPayment = (id: string) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       recurringPayments: prev.recurringPayments.filter(p => p.id !== id),
     }));
   };
@@ -252,6 +419,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addQuickTemplate = (template: Omit<QuickTemplate, 'id'>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       quickTemplates: [...prev.quickTemplates, { ...template, id: uuidv4() }],
     }));
   };
@@ -259,6 +427,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteQuickTemplate = (id: string) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       quickTemplates: prev.quickTemplates.filter(t => t.id !== id),
     }));
   };
@@ -267,6 +436,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const addCategory = (category: Omit<Category, 'id'>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       categories: [...prev.categories, { ...category, id: uuidv4() }],
     }));
   };
@@ -274,6 +444,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateCategory = (id: string, updates: Partial<Omit<Category, 'id'>>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       categories: prev.categories.map(c => c.id === id ? { ...c, ...updates } : c),
     }));
   };
@@ -281,6 +452,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const deleteCategory = (id: string) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       categories: prev.categories.filter(c => c.id !== id),
     }));
   };
@@ -289,6 +461,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateSettings = (settings: Partial<AppSettings>) => {
     setData(prev => ({
       ...prev,
+      lastModified: new Date().toISOString(),
       settings: { ...prev.settings, ...settings },
     }));
   };
@@ -296,7 +469,10 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Storage
   const importData = (json: string) => {
     const imported = importStorageData(json);
-    setData(imported);
+    setData({
+      ...imported,
+      lastModified: new Date().toISOString(),
+    });
   };
 
   const exportData = () => exportStorageData();
@@ -338,6 +514,11 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const value = {
     data,
+    syncStatus,
+    syncError,
+    syncCloud,
+    createCloudBackup,
+    testToken,
     addAccount, updateAccount, deleteAccount,
     addTransaction, updateTransaction, deleteTransaction,
     addGoal, updateGoal, deleteGoal, contributeToGoal,

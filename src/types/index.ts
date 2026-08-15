@@ -74,6 +74,10 @@ export interface AppSettings {
   currency: string;
   currencySymbol: string;
   theme: 'light' | 'dark' | 'system';
+  githubToken?: string;
+  gistId?: string;
+  autoSync?: boolean;
+  lastSyncedAt?: string;
 }
 
 export interface FinanceData {
@@ -85,4 +89,5 @@ export interface FinanceData {
   recurringPayments: RecurringPayment[];
   quickTemplates: QuickTemplate[];
   settings: AppSettings;
+  lastModified?: string;
 }
