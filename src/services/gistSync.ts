@@ -19,6 +19,26 @@ function cleanToken(token: string): string {
   return token.trim().replace(/^["']|["']$/g, '');
 }
 
+/**
+ * Strips secrets like githubToken before uploading to Gist,
+ * preventing GitHub Secret Scanning from auto-revoking the token!
+ */
+function sanitizeDataForCloud(data: FinanceData): Record<string, any> {
+  const { settings, ...rest } = data;
+  return {
+    ...rest,
+    settings: {
+      currency: settings?.currency || 'RUB',
+      currencySymbol: settings?.currencySymbol || '₽',
+      theme: settings?.theme || 'dark',
+      gistId: settings?.gistId,
+      autoSync: settings?.autoSync,
+      lastSyncedAt: settings?.lastSyncedAt,
+    },
+    lastModified: new Date().toISOString(),
+  };
+}
+
 function getHeaders(token: string, isJson = false): Record<string, string> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${cleanToken(token)}`,
@@ -62,10 +82,7 @@ export async function createPrivateGist(
   data: FinanceData
 ): Promise<{ gistId: string; updatedAt: string }> {
   const tokenStr = cleanToken(token);
-  const payload = {
-    ...data,
-    lastModified: new Date().toISOString(),
-  };
+  const payload = sanitizeDataForCloud(data);
 
   const res = await fetch('https://api.github.com/gists', {
     method: 'POST',
@@ -103,10 +120,7 @@ export async function pushToGist(
 ): Promise<{ updatedAt: string }> {
   const tokenStr = cleanToken(token);
   const gistIdStr = gistId.trim();
-  const payload = {
-    ...data,
-    lastModified: new Date().toISOString(),
-  };
+  const payload = sanitizeDataForCloud(data);
 
   const res = await fetch(`https://api.github.com/gists/${gistIdStr}`, {
     method: 'PATCH',
