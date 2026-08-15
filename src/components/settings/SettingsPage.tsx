@@ -73,6 +73,27 @@ export const SettingsPage: React.FC = () => {
     setTimeout(() => setSyncFeedback(null), 3000);
   };
 
+  const [isTestingToken, setIsTestingToken] = useState(false);
+
+  const handleTestToken = async () => {
+    if (!githubToken.trim()) {
+      setSyncFeedback({ type: 'error', text: 'Введите токен для проверки' });
+      return;
+    }
+    setIsTestingToken(true);
+    setSyncFeedback(null);
+    try {
+      const res = await testToken(githubToken.trim());
+      setTokenUser(res.user);
+      setSyncFeedback({ type: 'success', text: `✓ Токен валиден! Авторизован аккаунт GitHub: @${res.user}` });
+    } catch (err: any) {
+      setTokenUser(null);
+      setSyncFeedback({ type: 'error', text: err.message || 'Ошибка проверки токена' });
+    } finally {
+      setIsTestingToken(false);
+    }
+  };
+
   const handleCreateNewGist = async () => {
     if (!githubToken.trim()) {
       setSyncFeedback({ type: 'error', text: 'Сначала введите GitHub Personal Access Token' });
@@ -241,16 +262,36 @@ export const SettingsPage: React.FC = () => {
                 Создать токен на GitHub <ExternalLink size={12} />
               </a>
             </div>
-            <input
-              type="password"
-              value={githubToken}
-              onChange={e => setGithubToken(e.target.value)}
-              placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              className="input"
-            />
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginTop: '0.25rem' }}>
-              Требуется только право доступа <code>gist</code> (для чтения и записи ваших приватных заметок-бэкапов).
-            </span>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <input
+                type="password"
+                value={githubToken}
+                onChange={e => setGithubToken(e.target.value)}
+                placeholder="ghp_xxxxxxxxxxxx... или github_pat_xxxxxxxxxxxx..."
+                className="input"
+                style={{ flex: 1, minWidth: '220px' }}
+              />
+              <button
+                type="button"
+                onClick={handleTestToken}
+                disabled={isTestingToken || !githubToken.trim()}
+                className="btn btn--outline"
+                style={{ opacity: !githubToken.trim() ? 0.5 : 1 }}
+              >
+                {isTestingToken ? <RefreshCw size={16} className="animate-spin" /> : <Key size={16} />}
+                Проверить токен
+              </button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.35rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Поддерживаются токены <code>ghp_...</code> (Classic с галочкой <code>gist</code>) и <code>github_pat_...</code>
+              </span>
+              {tokenUser && (
+                <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>
+                  ✓ Аккаунт: @{tokenUser}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Gist ID Input */}

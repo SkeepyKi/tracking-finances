@@ -15,20 +15,39 @@ interface GistResponse {
   };
 }
 
+function cleanToken(token: string): string {
+  return token.trim().replace(/^["']|["']$/g, '');
+}
+
+function getHeaders(token: string, isJson = false): Record<string, string> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${cleanToken(token)}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  if (isJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  return headers;
+}
+
 /**
  * Validate token by fetching user profile
  */
 export async function testGistToken(token: string): Promise<{ login: string; name: string }> {
+  const tokenStr = cleanToken(token);
+  if (!tokenStr) throw new Error('Токен не указан');
+
   const res = await fetch('https://api.github.com/user', {
-    headers: {
-      Authorization: `token ${token.trim()}`,
-      Accept: 'application/vnd.github.v3+json',
-    },
+    headers: getHeaders(tokenStr),
   });
 
   if (!res.ok) {
-    if (res.status === 401) throw new Error('Неверный токен GitHub (401 Unauthorized)');
-    throw new Error(`Ошибка проверки токена (HTTP ${res.status})`);
+    if (res.status === 401) {
+      throw new Error('Неверный токен GitHub (401 Bad credentials). Убедитесь, что скопировали токен полностью.');
+    }
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Ошибка проверки токена (HTTP ${res.status})`);
   }
 
   const json = await res.json();
@@ -42,6 +61,7 @@ export async function createPrivateGist(
   token: string,
   data: FinanceData
 ): Promise<{ gistId: string; updatedAt: string }> {
+  const tokenStr = cleanToken(token);
   const payload = {
     ...data,
     lastModified: new Date().toISOString(),
@@ -49,11 +69,7 @@ export async function createPrivateGist(
 
   const res = await fetch('https://api.github.com/gists', {
     method: 'POST',
-    headers: {
-      Authorization: `token ${token.trim()}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-    },
+    headers: getHeaders(tokenStr, true),
     body: JSON.stringify({
       description: '🔒 Finance Tracker - Приватный бэкап данных',
       public: false,
@@ -66,6 +82,9 @@ export async function createPrivateGist(
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('Неверный токен GitHub (401 Bad credentials). Проверьте правильность токена.');
+    }
     const errorJson = await res.json().catch(() => ({}));
     throw new Error(errorJson.message || `Ошибка создания Gist (HTTP ${res.status})`);
   }
@@ -82,18 +101,16 @@ export async function pushToGist(
   gistId: string,
   data: FinanceData
 ): Promise<{ updatedAt: string }> {
+  const tokenStr = cleanToken(token);
+  const gistIdStr = gistId.trim();
   const payload = {
     ...data,
     lastModified: new Date().toISOString(),
   };
 
-  const res = await fetch(`https://api.github.com/gists/${gistId.trim()}`, {
+  const res = await fetch(`https://api.github.com/gists/${gistIdStr}`, {
     method: 'PATCH',
-    headers: {
-      Authorization: `token ${token.trim()}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-    },
+    headers: getHeaders(tokenStr, true),
     body: JSON.stringify({
       description: '🔒 Finance Tracker - Приватный бэкап данных',
       files: {
@@ -105,6 +122,12 @@ export async function pushToGist(
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('Неверный токен GitHub (401 Bad credentials). Проверьте токен.');
+    }
+    if (res.status === 404) {
+      throw new Error('Gist не найден (404). Проверьте Gist ID или создайте новый Gist.');
+    }
     const errorJson = await res.json().catch(() => ({}));
     throw new Error(errorJson.message || `Ошибка сохранения в Gist (HTTP ${res.status})`);
   }
@@ -120,15 +143,20 @@ export async function pullFromGist(
   token: string,
   gistId: string
 ): Promise<{ data: FinanceData; updatedAt: string }> {
-  const res = await fetch(`https://api.github.com/gists/${gistId.trim()}`, {
-    headers: {
-      Authorization: `token ${token.trim()}`,
-      Accept: 'application/vnd.github.v3+json',
-    },
+  const tokenStr = cleanToken(token);
+  const gistIdStr = gistId.trim();
+
+  const res = await fetch(`https://api.github.com/gists/${gistIdStr}`, {
+    headers: getHeaders(tokenStr),
   });
 
   if (!res.ok) {
-    if (res.status === 404) throw new Error('Gist не найден (проверьте Gist ID)');
+    if (res.status === 401) {
+      throw new Error('Неверный токен GitHub (401 Bad credentials).');
+    }
+    if (res.status === 404) {
+      throw new Error('Gist не найден (404). Проверьте Gist ID.');
+    }
     const errorJson = await res.json().catch(() => ({}));
     throw new Error(errorJson.message || `Ошибка получения Gist (HTTP ${res.status})`);
   }
