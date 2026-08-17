@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { Filter, Trash2, Plus, ArrowDownLeft, ArrowUpRight, ArrowRightLeft, Tag, CreditCard } from 'lucide-react';
+import { Filter, Trash2, Plus, ArrowDownLeft, ArrowUpRight, ArrowRightLeft, CreditCard } from 'lucide-react';
 import { CustomSelect, SelectOption } from '../common/CustomSelect';
 
 export const TransactionsPage: React.FC = () => {
@@ -23,7 +23,7 @@ export const TransactionsPage: React.FC = () => {
 
   const handleAddTx = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || !amount) return;
+    if (!description.trim() || !amount) return;
 
     const currentAccountId = accountId || accounts[0]?.id || 'default';
 
@@ -39,19 +39,6 @@ export const TransactionsPage: React.FC = () => {
 
     setDescription('');
     setAmount('');
-  };
-
-  const handleQuickTemplate = (name: string, defaultAmount: number, catName: string) => {
-    const matchedCategory = categories.find(c => c.name.toLowerCase().includes(catName.toLowerCase()) || c.type === 'expense');
-    const currentAccountId = accounts[0]?.id || 'default';
-    addTransaction({
-      amount: defaultAmount,
-      type: 'expense',
-      accountId: currentAccountId,
-      categoryId: matchedCategory?.id,
-      date: new Date().toISOString(),
-      description: name
-    });
   };
 
   const filteredTransactions = transactions.filter((t) => {
@@ -74,48 +61,57 @@ export const TransactionsPage: React.FC = () => {
 
   return (
     <div className="transactions-page" style={{ maxWidth: '1200px', margin: '0 auto', padding: '1.5rem' }}>
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.875rem', fontWeight: 700, margin: 0 }}>Операции и Расходы</h1>
           <p style={{ color: 'var(--text-secondary)', margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
-            История доходов, расходов и переводов с фильтрацией по счетам
+            История доходов, расходов и переводов
           </p>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-        {/* Add Transaction Card */}
-        <div className="glass-card" style={{ padding: '1.5rem', borderRadius: '1rem' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Plus size={20} color="var(--accent)" /> Новая операция
+      {/* Add Transaction Card (Compact & Full-width) */}
+      <div className="glass-card" style={{ padding: '1.5rem', borderRadius: '1rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Plus size={18} color="var(--accent)" /> Новая операция
           </h2>
-          <form onSubmit={handleAddTx} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {(['expense', 'income', 'transfer'] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setType(t)}
-                  style={{
-                    flex: 1,
-                    padding: '0.5rem',
-                    borderRadius: '0.5rem',
-                    border: '1px solid var(--border-glass)',
-                    background: type === t ? (t === 'expense' ? 'rgba(239, 68, 68, 0.2)' : t === 'income' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)') : 'transparent',
-                    color: type === t ? 'var(--text-primary)' : 'var(--text-secondary)',
-                    fontWeight: type === t ? 600 : 400,
-                    cursor: 'pointer',
-                    fontSize: '0.875rem',
-                    transition: 'all 0.2s ease'
-                  }}
-                >
-                  {t === 'expense' ? 'Расход' : t === 'income' ? 'Доход' : 'Перевод'}
-                </button>
-              ))}
-            </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>Описание</label>
+          {/* Type Switcher */}
+          <div style={{ display: 'flex', gap: '0.25rem' }}>
+            {(['expense', 'income', 'transfer'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setType(t)}
+                style={{
+                  padding: '0.4rem 0.85rem',
+                  borderRadius: '0.5rem',
+                  border: '1px solid var(--border-glass)',
+                  background: type === t 
+                    ? (t === 'expense' ? 'var(--danger)' : t === 'income' ? 'var(--success)' : 'var(--accent)') 
+                    : 'transparent',
+                  color: type === t ? '#fff' : 'var(--text-secondary)',
+                  fontWeight: type === t ? 600 : 400,
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {t === 'expense' ? 'Расход' : t === 'income' ? 'Доход' : 'Перевод'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <form onSubmit={handleAddTx} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {/* Row 1: Description, Amount, Date */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+            <div style={{ flex: 2 }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                Описание
+              </label>
               <input
                 type="text"
                 value={description}
@@ -126,135 +122,97 @@ export const TransactionsPage: React.FC = () => {
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>Сумма (₽)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  placeholder="0"
-                  className="input"
-                  required
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>Дата</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={e => setDate(e.target.value)}
-                  className="input"
-                />
-              </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                Сумма (₽)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                placeholder="0"
+                className="input"
+                required
+              />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: type === 'transfer' ? '1fr 1fr' : '1fr 1fr', gap: '0.75rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                Дата
+              </label>
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                className="input"
+              />
+            </div>
+          </div>
+
+          {/* Row 2: Account, Category/ToAccount, Submit Button */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                {type === 'transfer' ? 'Со счета' : 'Счет'}
+              </label>
+              <select
+                value={accountId || accounts[0]?.id || ''}
+                onChange={e => setAccountId(e.target.value)}
+                className="input"
+              >
+                {accounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.name} ({a.balance.toLocaleString('ru-RU')} ₽)</option>
+                ))}
+                {accounts.length === 0 && <option value="default">Основной счет</option>}
+              </select>
+            </div>
+
+            {type === 'transfer' ? (
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
-                  {type === 'transfer' ? 'Со счета' : 'Счет'}
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                  На счет
                 </label>
                 <select
-                  value={accountId || accounts[0]?.id || ''}
-                  onChange={e => setAccountId(e.target.value)}
+                  value={toAccountId || accounts[1]?.id || accounts[0]?.id || ''}
+                  onChange={e => setToAccountId(e.target.value)}
                   className="input"
                 >
                   {accounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.balance.toLocaleString('ru-RU')} ₽)</option>
+                    <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
-                  {accounts.length === 0 && <option value="default">Основной счет</option>}
                 </select>
               </div>
+            ) : (
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                  Категория
+                </label>
+                <select
+                  value={categoryId}
+                  onChange={e => setCategoryId(e.target.value)}
+                  className="input"
+                >
+                  <option value="">Выберите категорию</option>
+                  {categories.filter(c => c.type === type).map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-              {type === 'transfer' ? (
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>На счет</label>
-                  <select
-                    value={toAccountId || accounts[1]?.id || accounts[0]?.id || ''}
-                    onChange={e => setToAccountId(e.target.value)}
-                    className="input"
-                  >
-                    {accounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>Категория</label>
-                  <select
-                    value={categoryId}
-                    onChange={e => setCategoryId(e.target.value)}
-                    className="input"
-                  >
-                    <option value="">Выберите категорию</option>
-                    {categories.filter(c => c.type === type).map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              className="btn btn--primary"
-              style={{ width: '100%', marginTop: '0.5rem', padding: '0.75rem' }}
-            >
-              <Plus size={18} /> Добавить операцию
-            </button>
-          </form>
-        </div>
-
-        {/* Quick Templates & Shortcuts Card */}
-        <div className="glass-card" style={{ padding: '1.5rem', borderRadius: '1rem', display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Tag size={20} color="var(--success)" /> Быстрые шаблоны в 1 клик
-          </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1.25rem' }}>
-            Нажмите на шаблон, чтобы мгновенно зафиксировать частую операцию:
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem' }}>
-            {[
-              { name: 'Кофе с собой', amount: 250, cat: 'Еда' },
-              { name: 'Обед / Бизнес-ланч', amount: 450, cat: 'Еда' },
-              { name: 'Продукты на дом', amount: 1500, cat: 'Еда' },
-              { name: 'Метро / Транспорт', amount: 65, cat: 'Транспорт' },
-              { name: 'Такси', amount: 600, cat: 'Транспорт' },
-              { name: 'Аптека', amount: 800, cat: 'Здоровье' },
-            ].map((tmpl, idx) => (
+            <div>
               <button
-                key={idx}
-                type="button"
-                onClick={() => handleQuickTemplate(tmpl.name, tmpl.amount, tmpl.cat)}
-                style={{
-                  padding: '0.85rem 0.75rem',
-                  borderRadius: '0.75rem',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid var(--border-glass)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.2s ease',
-                  color: 'inherit'
-                }}
-                onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-2px)')}
-                onMouseLeave={e => (e.currentTarget.style.transform = 'none')}
+                type="submit"
+                className="btn btn--primary"
+                style={{ width: '100%', height: '38px' }}
               >
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>{tmpl.name}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--danger)', fontWeight: 700 }}>-{tmpl.amount} ₽</div>
+                <Plus size={16} /> Добавить операцию
               </button>
-            ))}
-          </div>
-
-          <div style={{ marginTop: 'auto', paddingTop: '1.5rem' }}>
-            <div style={{ padding: '1rem', borderRadius: '0.75rem', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              💡 Все добавленные операции сохраняются в памяти вашего браузера и автоматически синхронизируются с облаком.
             </div>
           </div>
-        </div>
+        </form>
       </div>
 
       {/* Transactions List Section */}
@@ -432,7 +390,7 @@ export const TransactionsPage: React.FC = () => {
               <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem' }}>
                 {accountFilter !== 'all' || typeFilter !== 'all' || filter
                   ? 'Попробуйте сбросить фильтры поиска.'
-                  : 'Добавьте первую операцию или воспользуйтесь быстрыми шаблонами выше.'}
+                  : 'Добавьте первую операцию с помощью формы выше.'}
               </p>
             </div>
           )}

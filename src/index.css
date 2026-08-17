@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
+  color-scheme: dark;
   /* Default: Dark Theme (Deep Obsidian & Crisp Glass) */
   --bg-primary: #090d16;
   --bg-secondary: #111726;
@@ -33,6 +34,7 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   --bg-primary: #f8fafc;
   --bg-secondary: #ffffff;
   --bg-card: #ffffff;
