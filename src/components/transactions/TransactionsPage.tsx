@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { Filter, Trash2, Plus, ArrowDownLeft, ArrowUpRight, ArrowRightLeft, Tag } from 'lucide-react';
+import { Filter, Trash2, Plus, ArrowDownLeft, ArrowUpRight, ArrowRightLeft, Tag, CreditCard } from 'lucide-react';
 
 export const TransactionsPage: React.FC = () => {
   const { data, addTransaction, deleteTransaction } = useFinance();
   const [filter, setFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
+  const [accountFilter, setAccountFilter] = useState<string>('all');
 
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
@@ -57,7 +58,8 @@ export const TransactionsPage: React.FC = () => {
       (t.description || '').toLowerCase().includes(filter.toLowerCase()) ||
       (t.categoryId || '').toLowerCase().includes(filter.toLowerCase());
     const matchesType = typeFilter === 'all' || t.type === typeFilter;
-    return matchesSearch && matchesType;
+    const matchesAccount = accountFilter === 'all' || t.accountId === accountFilter || t.toAccountId === accountFilter;
+    return matchesSearch && matchesType && matchesAccount;
   });
 
   const getAccountName = (accId: string) => {
@@ -75,7 +77,7 @@ export const TransactionsPage: React.FC = () => {
         <div>
           <h1 style={{ fontSize: '1.875rem', fontWeight: 700, margin: 0 }}>Операции и Расходы</h1>
           <p style={{ color: 'var(--text-secondary)', margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
-            История доходов, расходов и переводов
+            История доходов, расходов и переводов с фильтрацией по счетам
           </p>
         </div>
       </div>
@@ -248,7 +250,7 @@ export const TransactionsPage: React.FC = () => {
 
           <div style={{ marginTop: 'auto', paddingTop: '1.5rem' }}>
             <div style={{ padding: '1rem', borderRadius: '0.75rem', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              💡 Все добавленные операции сохраняются в памяти вашего браузера и будут доступны при следующих визитах.
+              💡 Все добавленные операции сохраняются в памяти вашего браузера и автоматически синхронизируются с облаком.
             </div>
           </div>
         </div>
@@ -257,21 +259,52 @@ export const TransactionsPage: React.FC = () => {
       {/* Transactions List Section */}
       <div className="glass-card" style={{ padding: '1.5rem', borderRadius: '1rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>История операций ({filteredTransactions.length})</h2>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>
+            История операций ({filteredTransactions.length})
+          </h2>
           
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', width: '220px' }}>
-              <Filter size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+          {/* Filters Bar: Search + Account Filter + Type Filter */}
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Search Input */}
+            <div style={{ position: 'relative', minWidth: '180px' }}>
+              <Filter size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
               <input
                 type="text"
                 placeholder="Поиск по описанию..."
                 className="input"
-                style={{ paddingLeft: '34px', fontSize: '0.875rem' }}
+                style={{ paddingLeft: '32px', fontSize: '0.85rem', height: '36px' }}
                 value={filter}
                 onChange={e => setFilter(e.target.value)}
               />
             </div>
 
+            {/* Account Filter Dropdown */}
+            {accounts.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <select
+                  value={accountFilter}
+                  onChange={e => setAccountFilter(e.target.value)}
+                  className="input"
+                  style={{
+                    fontSize: '0.85rem',
+                    height: '36px',
+                    width: 'auto',
+                    minWidth: '140px',
+                    borderColor: accountFilter !== 'all' ? 'var(--accent)' : 'var(--border-glass)',
+                    background: accountFilter !== 'all' ? 'rgba(59, 130, 246, 0.1)' : undefined
+                  }}
+                >
+                  <option value="all">💳 Все счета</option>
+                  {accounts.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.balance.toLocaleString('ru-RU')} ₽)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Type Filter Buttons */}
             <div style={{ display: 'flex', gap: '0.25rem' }}>
               {(['all', 'expense', 'income', 'transfer'] as const).map(f => (
                 <button
@@ -285,7 +318,8 @@ export const TransactionsPage: React.FC = () => {
                     color: typeFilter === f ? '#fff' : 'var(--text-secondary)',
                     cursor: 'pointer',
                     fontSize: '0.8rem',
-                    fontWeight: 500
+                    fontWeight: 500,
+                    height: '36px'
                   }}
                 >
                   {f === 'all' ? 'Все' : f === 'expense' ? 'Расходы' : f === 'income' ? 'Доходы' : 'Переводы'}
@@ -295,6 +329,7 @@ export const TransactionsPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Transactions list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {filteredTransactions.map((t) => {
             const isExpense = t.type === 'expense';
@@ -334,10 +369,23 @@ export const TransactionsPage: React.FC = () => {
                   </div>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{t.description || 'Операция'}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                       <span>{new Date(t.date).toLocaleDateString('ru-RU')}</span>
                       <span>•</span>
-                      <span>{getAccountName(t.accountId)}</span>
+                      <span style={{ 
+                        display: 'inline-flex', 
+                        alignItems: 'center', 
+                        gap: '0.25rem',
+                        padding: '0.1rem 0.45rem', 
+                        borderRadius: '0.35rem', 
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        color: 'var(--text-primary)',
+                        fontWeight: 500
+                      }}>
+                        <CreditCard size={12} style={{ opacity: 0.7 }} />
+                        {getAccountName(t.accountId)}
+                        {t.type === 'transfer' && t.toAccountId && ` ➔ ${getAccountName(t.toAccountId)}`}
+                      </span>
                       {t.categoryId && (
                         <>
                           <span>•</span>
@@ -384,7 +432,11 @@ export const TransactionsPage: React.FC = () => {
           {filteredTransactions.length === 0 && (
             <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-secondary)' }}>
               <p style={{ margin: 0, fontSize: '1rem' }}>Операций пока нет или ничего не найдено по фильтрам.</p>
-              <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem' }}>Добавьте первую операцию или воспользуйтесь быстрыми шаблонами выше.</p>
+              <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem' }}>
+                {accountFilter !== 'all' || typeFilter !== 'all' || filter
+                  ? 'Попробуйте сбросить фильтры поиска.'
+                  : 'Добавьте первую операцию или воспользуйтесь быстрыми шаблонами выше.'}
+              </p>
             </div>
           )}
         </div>
