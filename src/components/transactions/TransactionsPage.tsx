@@ -264,15 +264,15 @@ export const TransactionsPage: React.FC = () => {
           </h2>
           
           {/* Filters Bar: Search + Account Filter + Type Filter */}
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Search Input */}
             <div style={{ position: 'relative', minWidth: '180px' }}>
-              <Filter size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+              <Filter size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5, pointerEvents: 'none' }} />
               <input
                 type="text"
                 placeholder="Поиск по описанию..."
                 className="input"
-                style={{ paddingLeft: '32px', fontSize: '0.85rem', height: '36px' }}
+                style={{ paddingLeft: '32px', fontSize: '0.85rem', height: '38px', boxSizing: 'border-box' }}
                 value={filter}
                 onChange={e => setFilter(e.target.value)}
               />
@@ -280,46 +280,51 @@ export const TransactionsPage: React.FC = () => {
 
             {/* Account Filter Dropdown */}
             {accounts.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <select
-                  value={accountFilter}
-                  onChange={e => setAccountFilter(e.target.value)}
-                  className="input"
-                  style={{
-                    fontSize: '0.85rem',
-                    height: '36px',
-                    width: 'auto',
-                    minWidth: '140px',
-                    borderColor: accountFilter !== 'all' ? 'var(--accent)' : 'var(--border-glass)',
-                    background: accountFilter !== 'all' ? 'rgba(59, 130, 246, 0.1)' : undefined
-                  }}
-                >
-                  <option value="all">💳 Все счета</option>
-                  {accounts.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} ({a.balance.toLocaleString('ru-RU')} ₽)
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={accountFilter}
+                onChange={e => setAccountFilter(e.target.value)}
+                className="input"
+                style={{
+                  fontSize: '0.85rem',
+                  height: '38px',
+                  width: 'auto',
+                  minWidth: '150px',
+                  boxSizing: 'border-box',
+                  borderColor: accountFilter !== 'all' ? 'var(--accent)' : 'var(--border-glass)',
+                  background: accountFilter !== 'all' ? 'rgba(59, 130, 246, 0.12)' : undefined,
+                  fontWeight: accountFilter !== 'all' ? 600 : 400
+                }}
+              >
+                <option value="all">Все счета</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.balance.toLocaleString('ru-RU')} ₽)
+                  </option>
+                ))}
+              </select>
             )}
 
             {/* Type Filter Buttons */}
-            <div style={{ display: 'flex', gap: '0.25rem' }}>
+            <div style={{ display: 'flex', gap: '0.25rem', height: '38px', alignItems: 'center' }}>
               {(['all', 'expense', 'income', 'transfer'] as const).map(f => (
                 <button
                   key={f}
                   onClick={() => setTypeFilter(f)}
                   style={{
-                    padding: '0.4rem 0.75rem',
+                    height: '38px',
+                    padding: '0 0.85rem',
                     borderRadius: '0.5rem',
                     border: '1px solid var(--border-glass)',
                     background: typeFilter === f ? 'var(--accent)' : 'transparent',
                     color: typeFilter === f ? '#fff' : 'var(--text-secondary)',
                     cursor: 'pointer',
-                    fontSize: '0.8rem',
-                    fontWeight: 500,
-                    height: '36px'
+                    fontSize: '0.85rem',
+                    fontWeight: typeFilter === f ? 600 : 400,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxSizing: 'border-box',
+                    transition: 'all 0.15s ease'
                   }}
                 >
                   {f === 'all' ? 'Все' : f === 'expense' ? 'Расходы' : f === 'income' ? 'Доходы' : 'Переводы'}

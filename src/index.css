@@ -125,18 +125,19 @@ h1, h2, h3, h4, h5, h6 {
   border-color: rgba(59, 130, 246, 0.25);
 }
 
-/* Form Controls */
 .input {
   width: 100%;
-  padding: 0.7rem 1rem;
+  padding: 0.6rem 0.9rem;
   background-color: var(--bg-input);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-family: 'Inter', sans-serif;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
   transition: var(--transition);
   outline: none;
+  box-sizing: border-box;
 }
 
 .input:focus {
@@ -146,6 +147,20 @@ h1, h2, h3, h4, h5, h6 {
 
 select.input {
   cursor: pointer;
+  padding: 0.5rem 2rem 0.5rem 0.85rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.7)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
+[data-theme="light"] select.input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='rgba(0,0,0,0.6)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+select.input option {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
 }
 
 /* Buttons */
