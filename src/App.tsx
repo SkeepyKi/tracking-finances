@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, Component, ErrorInfo, ReactNode } from 'react';
 import { FinanceProvider } from './context/FinanceContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { DashboardPage } from './components/dashboard/DashboardPage';
@@ -8,7 +8,79 @@ import { BudgetsPage } from './components/budgets/BudgetsPage';
 import { SettingsPage } from './components/settings/SettingsPage';
 import { AccountsPage } from './components/accounts/AccountsPage';
 import { GoalsPage } from './components/goals/GoalsPage';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, RefreshCw, AlertCircle } from 'lucide-react';
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('App crashed with error:', error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          padding: '2rem',
+          textAlign: 'center',
+          background: 'var(--bg-primary)',
+          color: 'var(--text-primary)'
+        }}>
+          <div style={{
+            padding: '2.5rem',
+            borderRadius: '1.25rem',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-glass)',
+            maxWidth: '500px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.4)'
+          }}>
+            <div style={{ color: 'var(--danger)', marginBottom: '1rem' }}>
+              <AlertCircle size={48} style={{ margin: '0 auto' }} />
+            </div>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 700, margin: '0 0 0.5rem 0' }}>Что-то пошло не так</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+              Произошла ошибка при отображении страницы. Попробуйте обновить страницу.
+            </p>
+            <button
+              onClick={this.handleReset}
+              className="btn btn--primary"
+              style={{ padding: '0.75rem 1.5rem', fontSize: '0.95rem' }}
+            >
+              <RefreshCw size={16} /> Перезагрузить приложение
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<string>('dashboard');
@@ -88,9 +160,11 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <FinanceProvider>
-      <AppContent />
-    </FinanceProvider>
+    <ErrorBoundary>
+      <FinanceProvider>
+        <AppContent />
+      </FinanceProvider>
+    </ErrorBoundary>
   );
 };
 
