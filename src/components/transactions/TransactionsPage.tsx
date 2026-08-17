@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { Filter, Trash2, Plus, ArrowDownLeft, ArrowUpRight, ArrowRightLeft, Tag, CreditCard } from 'lucide-react';
+import { CustomSelect, SelectOption } from '../common/CustomSelect';
 
 export const TransactionsPage: React.FC = () => {
   const { data, addTransaction, deleteTransaction } = useFinance();
@@ -278,30 +279,21 @@ export const TransactionsPage: React.FC = () => {
               />
             </div>
 
-            {/* Account Filter Dropdown */}
+            {/* Account Filter Custom Dropdown */}
             {accounts.length > 0 && (
-              <select
+              <CustomSelect
+                options={[
+                  { value: 'all', label: 'Все счета' },
+                  ...accounts.map(a => ({
+                    value: a.id,
+                    label: a.name,
+                    subLabel: `${a.balance.toLocaleString('ru-RU')} ₽`,
+                    color: a.color
+                  }))
+                ]}
                 value={accountFilter}
-                onChange={e => setAccountFilter(e.target.value)}
-                className="input"
-                style={{
-                  fontSize: '0.85rem',
-                  height: '38px',
-                  width: 'auto',
-                  minWidth: '150px',
-                  boxSizing: 'border-box',
-                  borderColor: accountFilter !== 'all' ? 'var(--accent)' : 'var(--border-glass)',
-                  background: accountFilter !== 'all' ? 'rgba(59, 130, 246, 0.12)' : undefined,
-                  fontWeight: accountFilter !== 'all' ? 600 : 400
-                }}
-              >
-                <option value="all">Все счета</option>
-                {accounts.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({a.balance.toLocaleString('ru-RU')} ₽)
-                  </option>
-                ))}
-              </select>
+                onChange={setAccountFilter}
+              />
             )}
 
             {/* Type Filter Buttons */}
